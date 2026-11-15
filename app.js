@@ -1022,6 +1022,7 @@ async function loadSkyPatch(band) {
           ra: Number(data.ra).toFixed(4),
           dec: Number(data.dec).toFixed(4)
         };
+        updateSpectrumChart(selectedTarget.x, selectedTarget.y);
       }
 
       btnBlink.disabled = false;
@@ -1032,6 +1033,7 @@ async function loadSkyPatch(band) {
         `${requestedTarget ? requestedTarget.name : 'REAL FITS TARGET'} | RA ${data.ra}° | DEC ${data.dec}°`;
 
       viewportModeTag.textContent = 'REAL SPHEREx OBSERVATION';
+      setCoordinateStatus(`Loaded real FITS data in ${activeSector.id}.`);
 
       renderSectorView();
 
@@ -1063,6 +1065,7 @@ async function loadSkyPatch(band) {
           ra: Number(realTarget.ra).toFixed(4),
           dec: Number(realTarget.dec).toFixed(4)
         };
+        updateSpectrumChart(selectedTarget.x, selectedTarget.y);
       }
 
       btnBlink.disabled = true;
@@ -1074,6 +1077,9 @@ async function loadSkyPatch(band) {
 
       viewportModeTag.textContent =
         'REAL SPHEREx — STATIC OBSERVATION';
+      setCoordinateStatus(
+        `Loaded the static FITS preview for ${activeSector.id}.`,
+      );
 
       hudReadout.textContent =
         `PREGENERATED FITS CUTOUT | ${STATIC_OBSERVATION_DATE}`;
@@ -1089,6 +1095,10 @@ async function loadSkyPatch(band) {
 
       hudReadout.textContent =
         'REAL IMAGE UNAVAILABLE — USING SIMULATION';
+      setCoordinateStatus(
+        `Real FITS image unavailable for ${activeSector.id}; showing simulation.`,
+        true,
+      );
     }
   }
 
@@ -1224,6 +1234,14 @@ function getMockSpectrum(sector, x, y) {
 
     return Math.max(5, 85 - idx * 0.55 + noise);
   });
+}
+
+function updateSpectrumChart(x, y) {
+  if (!spectrumChart || !activeSector) return;
+
+  spectrumChart.data.datasets[0].data =
+    getMockSpectrum(activeSector, x, y);
+  spectrumChart.update();
 }
 
 // ==========================================
@@ -1438,12 +1456,7 @@ canvas.addEventListener('click', async e => {
 
   renderSectorView();
 
-  const fluxData = getMockSpectrum(activeSector, x, y);
-
-  if (spectrumChart) {
-    spectrumChart.data.datasets[0].data = fluxData;
-    spectrumChart.update();
-  }
+  updateSpectrumChart(x, y);
 
   btnFlag.disabled = false;
   btnFlag.textContent = realObservation
