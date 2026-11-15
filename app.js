@@ -6,8 +6,17 @@ const BRIEFING_SEEN_KEY = 'spherex_briefing_seen';
 const localBackendBase = window.location.hostname
   ? `${window.location.protocol}//${window.location.hostname}:5001`
   : 'http://127.0.0.1:5001';
-const API_BASE = window.PLANETX_API_BASE
-  || (window.location.port === '5001' ? '' : localBackendBase);
+const configuredApiBase = window.PLANETX_API_BASE
+  && window.PLANETX_API_BASE.trim();
+const isLocalDevelopment = (
+  window.location.hostname === 'localhost'
+  || window.location.hostname === '127.0.0.1'
+  || window.location.protocol === 'file:'
+);
+const API_BASE = configuredApiBase
+  || (isLocalDevelopment
+    ? (window.location.port === '5001' ? '' : localBackendBase)
+    : '');
 
 const DEMO_TARGET = {
   ra: 133.795129,
@@ -43,7 +52,7 @@ const KNOWN_TARGETS = {
 };
 
 const REAL_DEMO_SECTOR = 'SEC-19';
-const STATIC_IMAGE_PATH = '/data/target_cutout.png';
+const STATIC_IMAGE_PATH = new URL('data/target_cutout.png', document.baseURI).href;
 const STATIC_OBSERVATION_DATE = '2025-05-05';
 
 // ==========================================
@@ -301,6 +310,26 @@ async function fetchSectorCoverage() {
   }
 
   return new Map(data.sectors.map(sector => [sector.id, sector]));
+}
+
+function getStaticSectorCoverage() {
+  return new Map(SECTORS.map(sector => [
+    sector.id,
+    {
+      ...sector,
+      has_real_data: sector.id === REAL_DEMO_SECTOR,
+      observations: sector.id === REAL_DEMO_SECTOR
+        ? [{
+            file: 'sample_spherex.fits',
+            date: STATIC_OBSERVATION_DATE,
+            pixel_x: null,
+            pixel_y: null
+          }]
+        : [],
+      sample_ra: sector.id === REAL_DEMO_SECTOR ? DEMO_TARGET.ra : null,
+      sample_dec: sector.id === REAL_DEMO_SECTOR ? DEMO_TARGET.dec : null
+    }
+  ]));
 }
 
 async function saveCandidate(candidate) {
@@ -1702,6 +1731,36 @@ syncMemory();
 renderAllSkyMap();
 
 async function initializeBackend() {
+  const loadUrlTarget = async () => {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.has('ra') && urlParams.has('dec')) {
+      raInput.value = urlParams.get('ra');
+      decInput.value = urlParams.get('dec');
+      const urlRa = parseCoordinate(raInput.value, true);
+      const urlDec = parseCoordinate(decInput.value, false);
+      const matchingTarget = Object.entries(KNOWN_TARGETS)
+        .find(([, target]) => (
+          Math.abs(target.ra - urlRa) < 0.0001
+          && Math.abs(target.dec - urlDec) < 0.0001
+        ));
+      if (matchingTarget) {
+        targetPreset.value = matchingTarget[0];
+      }
+      await inspectCoordinates();
+    }
+  };
+
+  if (!API_BASE) {
+    surveyStatus.lastChild.textContent = ' STATIC DEMO';
+    sectorCoverage = getStaticSectorCoverage();
+    sectorCoverageLoaded = true;
+    sectorBadge.textContent =
+      'Static FITS preview available in SEC-19. Candidate logs are saved locally.';
+    renderAllSkyMap();
+    await loadUrlTarget();
+    return;
+  }
+
   if (!(await checkBackend())) {
     sectorBadge.textContent = 'Backend unavailable — no verified sectors loaded.';
     renderAllSkyMap();
@@ -1723,22 +1782,7 @@ async function initializeBackend() {
     ]);
     syncMemory();
 
-    const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.has('ra') && urlParams.has('dec')) {
-      raInput.value = urlParams.get('ra');
-      decInput.value = urlParams.get('dec');
-      const urlRa = parseCoordinate(raInput.value, true);
-      const urlDec = parseCoordinate(decInput.value, false);
-      const matchingTarget = Object.entries(KNOWN_TARGETS)
-        .find(([, target]) => (
-          Math.abs(target.ra - urlRa) < 0.0001
-          && Math.abs(target.dec - urlDec) < 0.0001
-        ));
-      if (matchingTarget) {
-        targetPreset.value = matchingTarget[0];
-      }
-      await inspectCoordinates();
-    }
+    await loadUrlTarget();
   } catch (error) {
     console.error('Could not load backend candidate archive:', error);
     sectorBadge.textContent = 'Could not load verified sector coverage.';
