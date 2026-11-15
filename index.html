@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SPHEREx // All-Sky Infrared Time-Domain Explorer</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <!-- SPHEREx Spectral Observatory Top Navigation -->
+  <header class="spx-header">
+    <div class="header-left">
+      <button id="explore-trigger" class="explore-btn" title="Open Mission Briefing & AI Disclosure">
+        Briefing &amp; Credits <span class="circle-icon">⊕</span>
+      </button>
+      <input
+        type="text"
+        id="sector-search"
+        class="spx-search"
+        placeholder="Verified sector (e.g. SEC-19)"
+        aria-label="Jump to sky sector"
+      />
+    </div>
+
+    <!-- Original Geometric Spectral-Prism Telescope Emblem (No Agency Branding) -->
+    <a href="#top" id="logo-home" class="spx-brand" title="Return to All-Sky Survey Map">
+      <svg width="36" height="36" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <polygon points="24,4 42,14 42,34 24,44 6,34 6,14" stroke="#38bdf8" stroke-width="2" fill="#0b1120" />
+        <polygon points="24,11 35,31 13,31" stroke="#f8fafc" stroke-width="1.6" fill="none" />
+        <line x1="4" y1="24" x2="17" y2="24" stroke="#e2e8f0" stroke-width="1.8" />
+        <line x1="30" y1="20" x2="44" y2="15" stroke="#38bdf8" stroke-width="2" />
+        <line x1="31" y1="24" x2="44" y2="24" stroke="#f59e0b" stroke-width="2" />
+        <line x1="30" y1="28" x2="44" y2="33" stroke="#f43f5e" stroke-width="2" />
+      </svg>
+      <div class="brand-text">
+        <span class="brand-name">SPHEREx</span>
+        <span class="brand-sub">102-BAND IR SKY SURVEY</span>
+      </div>
+    </a>
+
+    <nav class="header-right">
+      <button id="tab-explorer" class="nav-link active">Sky Explorer</button>
+      <button id="tab-candidates" class="nav-link">
+        Candidate Log <span id="candidate-count" class="count-badge">0</span>
+      </button>
+      <button id="btn-open-guide" class="nav-link">How to Use</button>
+      <span id="survey-status" class="survey-pill"><span class="pulse-dot"></span> CONNECTING</span>
+    </nav>
+  </header>
+
+  <!-- 102-Band Spectral Telemetry Strip -->
+  <div class="spx-telemetry-bar">
+    <div class="banner-title">All-Sky Near-Infrared Time-Domain Explorer</div>
+    <div class="banner-metrics">
+      <div class="metric-unit">
+        <span class="metric-num" id="banner-band">050</span>
+        <span class="metric-sub">IR BAND</span>
+      </div>
+      <span class="metric-sep">:</span>
+      <div class="metric-unit">
+        <span class="metric-num" id="banner-wavelength">2.85</span>
+        <span class="metric-sub">MICRONS</span>
+      </div>
+      <span class="metric-sep">:</span>
+      <div class="metric-unit">
+        <span class="metric-num" id="banner-scanned">00/32</span>
+        <span class="metric-sub">SECTORS</span>
+      </div>
+      <span class="metric-sep">:</span>
+      <div class="metric-unit">
+        <span class="metric-num" id="banner-flagged">00</span>
+        <span class="metric-sub">FLAGGED</span>
+      </div>
+    </div>
+    <div class="banner-epoch">CADENCE: 6-MONTH EPOCHS</div>
+  </div>
+
+  <!-- TAB 1: Sky Explorer Workspace -->
+  <main id="view-explorer" class="workspace-grid">
+    <!-- Left Sidebar: Navigation & Instrument Controls -->
+    <aside class="spx-panel">
+      <span class="micro-label">SKY NAVIGATION</span>
+      <h2 id="sector-title" class="panel-heading">All-Sky Survey</h2>
+      <p id="sector-badge" class="panel-subtext">Loading verified FITS sectors...</p>
+
+      <div class="coordinate-search">
+        <span class="micro-label">COORDINATE QUERY</span>
+        <label for="target-preset">Known target</label>
+        <select id="target-preset" class="spx-select">
+          <option value="">Choose a target...</option>
+          <option value="barnards-star">Barnard's Star</option>
+          <option value="epsilon-indi-b">Epsilon Indi B</option>
+          <option value="wise-0855">WISE 0855</option>
+          <option value="rw-aurigae">RW Aurigae</option>
+          <option value="r-draconis">R Draconis</option>
+        </select>
+        <label for="ra-input">Right Ascension (deg or hh:mm:ss)</label>
+        <input id="ra-input" class="spx-input" inputmode="decimal" placeholder="133.795129" />
+        <label for="dec-input">Declination (deg or dd:mm:ss)</label>
+        <input id="dec-input" class="spx-input" inputmode="decimal" placeholder="-7.245147" />
+        <button id="btn-inspect-coordinates" class="spx-btn secondary">Inspect Coordinates</button>
+        <p id="coordinate-status" class="form-status" aria-live="polite"></p>
+      </div>
+
+      <div class="btn-stack">
+        <button id="btn-back-allsky" class="spx-btn secondary" disabled>← All-Sky Map</button>
+        <button id="btn-mark-clear" class="spx-btn secondary" disabled>Mark Sector Clear ✓</button>
+      </div>
+
+      <hr class="spx-divider" />
+
+      <span class="micro-label">SPECTROPHOTOMETER (0.75–5.0 µm)</span>
+      <div class="slider-header">
+        <span>Wavelength Band</span>
+        <span id="band-label" class="mono-readout">50 (2.85 µm)</span>
+      </div>
+      <input type="range" id="band-slider" class="spectral-slider" min="1" max="102" value="50" />
+
+      <div class="btn-stack">
+        <button id="btn-blink" class="spx-btn secondary" disabled>Blink Epochs (Space)</button>
+        <button id="btn-dipole" class="spx-btn secondary" disabled>Dipole Difference Map</button>
+      </div>
+
+      <div class="legend-card">
+        <span class="micro-label">SURVEY STATUS KEY</span>
+        <div class="legend-row"><span class="status-dot cyan"></span> Active / Hovered Sector</div>
+        <div class="legend-row"><span class="status-dot green"></span> Verified Real-Data Sector</div>
+        <div class="legend-row"><span class="status-dot amber"></span> Moving Object Flagged</div>
+      </div>
+    </aside>
+
+    <!-- Center Viewport: All-Sky Map & Sector Blink Comparator -->
+    <section class="spx-panel viewport-center">
+      <div class="viewport-topbar">
+        <span class="micro-label" id="viewport-mode-tag">ALL-SKY CELESTIAL PROJECTION</span>
+        <span class="mono-readout" id="hud-readout">CLICK ANY SECTOR TO INSPECT</span>
+      </div>
+
+      <div class="canvas-frame">
+        <canvas id="sky-canvas" width="640" height="360"></canvas>
+      </div>
+
+      <!-- Bottom 3-Column Workflow Strip -->
+      <div class="spx-feature-strip">
+        <div class="feature-col">
+          <span class="micro-label">STEP 01 // SURVEY</span>
+          <div class="feature-title">Select Sky Sector <span class="accent-arrow">→</span></div>
+        </div>
+        <div class="feature-col">
+          <span class="micro-label">STEP 02 // MOTION</span>
+          <div class="feature-title">Blink 6-Month Epochs <span class="accent-arrow">→</span></div>
+        </div>
+        <div class="feature-col">
+          <span class="micro-label">STEP 03 // DISCOVERY</span>
+          <div class="feature-title">Flag Moving Candidates <span class="accent-arrow">→</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Right Sidebar: 102-Band Spectrometry & Candidate Flagging -->
+    <aside class="spx-panel">
+      <span class="micro-label">OBJECT SPECTROMETRY</span>
+      <h2 class="panel-heading">102-Band Profile</h2>
+      <p id="target-coords" class="mono-readout">Select a sector and click an object...</p>
+
+      <div class="chart-box">
+        <canvas id="spectrum-chart"></canvas>
+      </div>
+
+      <p class="spectrum-note">
+        Cold outer-solar-system bodies exhibit thermal rise and methane absorption near <strong>3.3 µm</strong>.
+      </p>
+
+      <button id="btn-flag" class="spx-btn primary" disabled>Flag Moving Candidate</button>
+    </aside>
+  </main>
+
+  <!-- TAB 2: Persistent Candidate Memory Log -->
+  <section id="view-candidates" class="candidates-container hidden">
+    <div class="candidates-wrapper">
+      <div class="candidates-header">
+        <div>
+          <span class="micro-label">OBSERVATION ARCHIVE</span>
+          <h1 class="page-title">Logged Moving Candidates</h1>
+        </div>
+        <div class="header-actions">
+          <button id="btn-export-json" class="spx-btn secondary">Export Telemetry JSON</button>
+          <button id="btn-clear-log" class="spx-btn danger">Clear Archive</button>
+        </div>
+      </div>
+
+      <div class="table-card">
+        <table class="spx-table">
+          <thead>
+            <tr>
+              <th>DESIGNATION</th>
+              <th>SECTOR</th>
+              <th>CELESTIAL COORDS (RA / DEC)</th>
+              <th>PIXEL (X, Y)</th>
+              <th>BAND / WAVELENGTH</th>
+              <th>TIMESTAMP</th>
+              <th>ACTION</th>
+            </tr>
+          </thead>
+          <tbody id="candidates-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- Mission Briefing, How-To & AI Utilization Disclosure Modal -->
+  <div id="mission-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal-card">
+      <div class="modal-top-bar">
+        <span class="micro-label" style="margin: 0; color: #f8fafc;">SPHEREx // PUBLIC SKY SURVEY BRIEFING</span>
+        <button id="btn-close-modal" class="modal-close" aria-label="Close briefing">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <h2 id="modal-title" class="modal-heading">How to Spot Moving Objects Across 102 IR Bands</h2>
+        <p class="modal-intro">
+          Every six months, the SPHEREx all-sky survey captures the entire celestial sphere across 102 near-infrared bands (0.75–5.0 µm). Distant stars remain stationary, while comets, asteroids, brown dwarfs, and Planet X candidates shift position between epochs.
+        </p>
+
+        <div class="modal-steps">
+          <div class="step-card">
+            <span class="step-num">01</span>
+            <div>
+              <strong>Choose a Sky Sector</strong>
+              <p>Choose a known target or enter RA/Dec coordinates to inspect real FITS data. Green sectors on the map are also available.</p>
+            </div>
+          </div>
+
+          <div class="step-card">
+            <span class="step-num">02</span>
+            <div>
+              <strong>Blink Epochs or View Dipole Difference</strong>
+              <p>Press <strong>Spacebar</strong> (or click <em>Blink Epochs</em>) to flip between 6-month snapshots. Switch to <em>Dipole Difference Map</em> to highlight moving sources as a crimson/cyan pair.</p>
+            </div>
+          </div>
+
+          <div class="step-card">
+            <span class="step-num">03</span>
+            <div>
+              <strong>Inspect the 102-Band Spectrum</strong>
+              <p>Click any moving dot to lock the reticle and plot its infrared flux curve. Scrub the band slider—icy Planet X / brown dwarf candidates show a methane dip near <strong>3.3 µm</strong>.</p>
+            </div>
+          </div>
+
+          <div class="step-card">
+            <span class="step-num">04</span>
+            <div>
+              <strong>Flag Discoveries or Clear Sectors</strong>
+              <p>Click <strong>Flag Moving Candidate</strong> to archive the coordinates in your <em>Candidate Log</em> tab, or click <strong>Mark Sector Clear</strong> to return to the full sky.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-credits">
+          <span class="micro-label">PROJECT CREDITS &amp; AI UTILIZATION DISCLOSURE</span>
+          <p class="credit-authors">
+            <strong>Authors:</strong> Parvez, Shravan. Credit to AI for implementing some coding features, but ideas were completely ours.
+          </p>
+          <ul class="ai-disclosure-list">
+            <li><strong>Where AI Was Utilized:</strong> Frontend HTML/CSS layout scaffolding, HTML5 Canvas elliptical projection &amp; pixel-subtraction rendering in <code>app.js</code>, Chart.js 102-band configuration, and <code>localStorage</code> state persistence.</li>
+            <li><strong>Original Human Contributions:</strong> Project concept, citizen-science blink/dipole workflow, 32-sector all-sky navigation design, spectral diagnostic criteria, and Python backend architecture.</li>
+          </ul>
+        </div>
+
+        <div class="modal-footer">
+          <button id="btn-start-exploring" class="spx-btn primary modal-cta">Launch Sky Explorer →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
