@@ -2,12 +2,15 @@
 from pathlib import Path
 from io import BytesIO
 from datetime import datetime, timezone
+from functools import lru_cache
 import base64
 import json
 import os
 
 import numpy as np
+import requests
 from flask import Flask, jsonify, request, send_from_directory
+from astropy_healpix import HEALPix
 from astropy.io import fits
 from astropy.wcs import WCS
 from astropy.nddata import Cutout2D
@@ -27,6 +30,19 @@ app = Flask(__name__)
 
 GRID_COLS = 8
 GRID_ROWS = 4
+HIPS_BASE = (
+    "https://irsa.ipac.caltech.edu/data/hips/"
+    "SPHEREx/spherex_allsky_cube"
+)
+NSIDE = 32
+ORDER = 5
+TOTAL_SKY_TILES = 12 * NSIDE * NSIDE
+TOTAL_CHANNELS = 102
+FIRST_CHANNEL = 1
+LAST_CHANNEL = 102
+healpix = HEALPix(nside=NSIDE, order="nested", frame="icrs")
+http_session = requests.Session()
+http_session.headers.update({"User-Agent": "PlanetX-SPHEREx-Explorer/1.0"})
 _fits_metadata_cache = None
 
 
@@ -65,6 +81,38 @@ def get_fits_files():
         files.extend(DATA_DIR.glob(pattern))
 
     return sorted(set(files))
+
+
+@lru_cache(maxsize=1)
+def generate_all_sky_tiles():
+    """Return the centers of all SPHEREx HEALPix tiles."""
+    pixels = np.arange(TOTAL_SKY_TILES)
+    coordinates = healpix.healpix_to_skycoord(pixels)
+    return [
+        {
+            "tile_id": int(pixel),
+            "ra": round(float(coordinate.ra.deg), 6),  # type: ignore
+            "dec": round(float(coordinate.dec.deg), 6),  # type: ignore
+        }
+        for pixel, coordinate in zip(pixels, coordinates)
+    ]
+
+
+@lru_cache(maxsize=128)
+def download_hips_tile(tile_id, channel):
+    """Download and cache one SPHEREx HiPS image tile."""
+    directory = (tile_id // 10000) * 10000
+    url = (
+        f"{HIPS_BASE}/Norder{ORDER}/"
+        f"Dir{directory}/Npix{tile_id}_{channel}.png"
+    )
+    response = http_session.get(url, timeout=30)
+    if response.status_code == 404:
+        return None
+    response.raise_for_status()
+    if "image" not in response.headers.get("Content-Type", "").lower():
+        raise ValueError("SPHEREx archive returned a non-image response.")
+    return response.content
 
 
 def get_fits_metadata():
@@ -217,9 +265,135 @@ def health():
 
     return jsonify({
         "status": "ok",
+        "project": "PlanetX",
+        "sky_coverage": "full_sky",
+        "total_tiles": TOTAL_SKY_TILES,
+        "total_channels": TOTAL_CHANNELS,
         "fits_files_found": len(files),
-        "files": [file.name for file in files]
+        "files": [file.name for file in files],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     })
+
+
+@app.get("/api/sky/info")
+def sky_info():
+    return jsonify({
+        "status": "ok",
+        "survey": "SPHEREx",
+        "coverage": "full sky",
+        "nside": NSIDE,
+        "order": ORDER,
+        "total_tiles": TOTAL_SKY_TILES,
+        "total_channels": TOTAL_CHANNELS,
+        "first_channel": FIRST_CHANNEL,
+        "last_channel": LAST_CHANNEL,
+        "hips_base": HIPS_BASE,
+    })
+
+
+@app.get("/api/sky/tiles")
+def sky_tiles():
+    try:
+        offset = int(request.args.get("offset", 0))
+        limit = int(request.args.get("limit", 1000))
+        if offset < 0 or not 1 <= limit <= 5000:
+            raise ValueError
+    except (TypeError, ValueError):
+        return jsonify({
+            "status": "error",
+            "error": "Invalid offset or limit.",
+        }), 400
+
+    tiles = generate_all_sky_tiles()
+    selected = tiles[offset:offset + limit]
+    return jsonify({
+        "status": "ok",
+        "total": TOTAL_SKY_TILES,
+        "offset": offset,
+        "limit": limit,
+        "count": len(selected),
+        "tiles": selected,
+        "has_more": offset + len(selected) < TOTAL_SKY_TILES,
+    })
+
+
+@app.get("/api/sky/locate")
+def locate_tile():
+    try:
+        ra = float(request.args["ra"])
+        dec = float(request.args["dec"])
+        if not 0 <= ra < 360 or not -90 <= dec <= 90:
+            raise ValueError
+    except (KeyError, TypeError, ValueError):
+        return jsonify({
+            "status": "error",
+            "error": "Provide valid RA and Dec.",
+        }), 400
+
+    coordinate = SkyCoord(ra=ra * u.deg, dec=dec * u.deg, frame="icrs")
+    tile_id = int(healpix.skycoord_to_healpix(coordinate))  # type: ignore
+    return jsonify({
+        "status": "ok",
+        "tile_id": tile_id,
+        "ra": ra,
+        "dec": dec,
+    })
+
+
+@app.get("/api/sky/tile")
+def sky_tile():
+    try:
+        channel = int(request.args.get("channel", FIRST_CHANNEL))
+        if not FIRST_CHANNEL <= channel <= LAST_CHANNEL:
+            raise ValueError("Channel must be between 1 and 102.")
+
+        if "tile" in request.args:
+            tile_id = int(request.args["tile"])
+            if not 0 <= tile_id < TOTAL_SKY_TILES:
+                raise ValueError("Tile ID is outside the valid range.")
+            coordinate = healpix.healpix_to_skycoord(tile_id)
+        elif "ra" in request.args and "dec" in request.args:
+            ra = float(request.args["ra"])
+            dec = float(request.args["dec"])
+            if not 0 <= ra < 360 or not -90 <= dec <= 90:
+                raise ValueError("Invalid RA or Dec.")
+            coordinate = SkyCoord(
+                ra=ra * u.deg,
+                dec=dec * u.deg,
+                frame="icrs",
+            )
+            tile_id = int(healpix.skycoord_to_healpix(coordinate))  # type: ignore
+        else:
+            raise ValueError("Provide tile or both ra and dec.")
+    except (KeyError, TypeError, ValueError) as error:
+        return jsonify({"status": "error", "error": str(error)}), 400
+
+    try:
+        image_bytes = download_hips_tile(tile_id, channel)
+        if image_bytes is None:
+            return jsonify({
+                "status": "no_image",
+                "tile_id": tile_id,
+                "channel": channel,
+                "message": "No image is available for this tile and channel.",
+            }), 404
+
+        encoded = base64.b64encode(image_bytes).decode("ascii")
+        return jsonify({
+            "status": "ok",
+            "tile_id": tile_id,
+            "channel": channel,
+            "ra": float(coordinate.ra.deg),  # type: ignore
+            "dec": float(coordinate.dec.deg),  # type: ignore
+            "image": f"data:image/png;base64,{encoded}",
+        })
+    except requests.RequestException:
+        return jsonify({
+            "status": "error",
+            "error": "SPHEREx archive request failed.",
+        }), 502
+    except (ValueError, OSError) as error:
+        return jsonify({"status": "error", "error": str(error)}), 502
 
 
 @app.get("/api/sectors")
@@ -423,4 +597,8 @@ def clear_candidates():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5001, debug=True)
+    app.run(
+        host="0.0.0.0",
+        port=int(os.getenv("PORT", "5001")),
+        debug=False,
+    )

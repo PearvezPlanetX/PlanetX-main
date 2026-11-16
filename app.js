@@ -13,10 +13,11 @@ const isLocalDevelopment = (
   || window.location.hostname === '127.0.0.1'
   || window.location.protocol === 'file:'
 );
+const isRenderDeployment = window.location.hostname.endsWith('.onrender.com');
 const API_BASE = configuredApiBase
   || (isLocalDevelopment
     ? (window.location.port === '5001' ? '' : localBackendBase)
-    : '');
+    : isRenderDeployment ? '' : '');
 
 const DEMO_TARGET = {
   ra: 133.795129,
@@ -1750,7 +1751,7 @@ async function initializeBackend() {
     }
   };
 
-  if (!API_BASE) {
+  if (!API_BASE && !isRenderDeployment) {
     surveyStatus.lastChild.textContent = ' STATIC DEMO';
     sectorCoverage = getStaticSectorCoverage();
     sectorCoverageLoaded = true;
