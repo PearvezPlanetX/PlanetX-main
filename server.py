@@ -4,6 +4,7 @@ from io import BytesIO
 from datetime import datetime, timezone
 import base64
 import json
+import os
 
 import numpy as np
 from flask import Flask, jsonify, request, send_from_directory
@@ -32,12 +33,21 @@ _fits_metadata_cache = None
 @app.after_request
 def add_local_development_cors(response):
     origin = request.headers.get("Origin", "")
-    is_local_origin = (
-        origin.startswith("http://localhost:")
+    configured_origins = {
+        item.strip()
+        for item in os.getenv(
+            "CORS_ORIGINS",
+            "https://shravan50.github.io"
+        ).split(",")
+        if item.strip()
+    }
+    is_allowed_origin = (
+        origin in configured_origins
+        or origin.startswith("http://localhost:")
         or origin.startswith("http://127.0.0.1:")
     )
 
-    if is_local_origin:
+    if is_allowed_origin:
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Access-Control-Allow-Headers"] = "Content-Type"
         response.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS"
